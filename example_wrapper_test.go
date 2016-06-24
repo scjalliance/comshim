@@ -8,7 +8,8 @@ import (
 	"github.com/scjalliance/comshim"
 )
 
-// Object wraps a COM interface. In this example it wraps IUnknown.
+// Object wraps a COM interface in a way that is safe for multi-threaded access.
+// In this example it wraps IUnknown.
 type Object struct {
 	m     sync.Mutex
 	iface *ole.IUnknown

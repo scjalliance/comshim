@@ -100,8 +100,6 @@ func (s *Shim) run() error {
 			}
 		}
 
-		defer ole.CoUninitialize()
-
 		close(init)
 
 		s.m.Lock()
@@ -109,6 +107,7 @@ func (s *Shim) run() error {
 			s.cond.Wait()
 		}
 		s.running = false
+		ole.CoUninitialize()
 		s.m.Unlock()
 	}()
 

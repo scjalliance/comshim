@@ -91,13 +91,24 @@ func (s *Shim) run() error {
 		defer runtime.UnlockOSThread()
 
 		if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
-			oleerr := err.(*ole.OleError)
-			// S_FALSE           = 0x00000001 // CoInitializeEx was already called on this thread
-			if oleerr.Code() != ole.S_OK && oleerr.Code() != 0x00000001 {
+			switch err.(*ole.OleError).Code() {
+			case 0x00000001: // S_FALSE
+				// Some other goroutine called CoInitialize on this thread
+				// before we ended up with it. This probably means the other
+				// caller failed to lock the OS thread or failed to call
+				// CoUninitialize.
+
+				// We still decrement this thread's initialization counter by
+				// calling CoUninitialize here, as recommended by the docs.
+				ole.CoUninitialize()
+
+				// Send an error so that shim.Add panics
+				init <- ErrAlreadyInitialized
+			default:
 				init <- err
-				close(init)
-				return
 			}
+			close(init)
+			return
 		}
 
 		close(init)

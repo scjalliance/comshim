@@ -1,7 +1,7 @@
 module github.com/scjalliance/comshim
 
-go 1.20
+go 1.21
 
-require github.com/go-ole/go-ole v1.2.6
+require github.com/go-ole/go-ole v1.3.0
 
-require golang.org/x/sys v0.6.0 // indirect
+require golang.org/x/sys v0.14.0 // indirect

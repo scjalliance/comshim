@@ -31,7 +31,7 @@ func New() *Shim {
 	return shim
 }
 
-// Add adds delta, which may be negative, to the counter for the shim. As long
+// TryAdd adds delta, which may be negative, to the counter for the shim. As long
 // as the counter is greater than zero, at least one thread is guaranteed to be
 // initialized for mutli-threaded COM access.
 //
@@ -40,14 +40,14 @@ func New() *Shim {
 //
 // If the counter goes negative, Add panics.
 //
-// If the shim cannot be created for some reason, Add panics.
-func (s *Shim) Add(delta int) {
+// If the shim cannot be created for some reason, TryAdd returns an error
+func (s *Shim) TryAdd(delta int) error {
 	// Check whether the shim is already running within a read lock
 	s.m.RLock()
 	if s.running {
 		s.add(delta)
 		s.m.RUnlock()
-		return
+		return nil
 	}
 	s.m.RUnlock()
 
@@ -57,15 +57,32 @@ func (s *Shim) Add(delta int) {
 	s.add(delta)
 	if s.running {
 		// The shim was started between the read lock and the write lock
-		return
+		return nil
 	}
 
 	if err := s.run(); err != nil {
 		// FIXME: Consider passing out the error if the shim creation fails
-		panic(err)
+		return err
 	}
 
 	s.running = true
+	return nil
+}
+
+// Add adds delta, which may be negative, to the counter for the shim. As long
+// as the counter is greater than zero, at least one thread is guaranteed to be
+// initialized for mutli-threaded COM access.
+//
+// If the counter becomes zero, the shim is released and COM resources may be
+// released if there are no other threads that are still initialized.
+//
+// If the counter goes negative, Add panics.
+//
+// If the shim cannot be created for some reason, Add panics
+func (s *Shim) Add(delta int) {
+	if err := s.TryAdd(delta); err != nil {
+		panic(err)
+	}
 }
 
 // Done decrements the counter for the shim.
@@ -73,20 +90,24 @@ func (s *Shim) Done() {
 	s.add(-1)
 }
 
-func (s *Shim) add(delta int) {
+func (s *Shim) add(delta int) error {
 	value := s.c.Add(int64(delta))
 	if value == 0 {
 		s.cond.Broadcast()
 	}
 	if value < 0 {
-		panic(ErrNegativeCounter)
+		return ErrNegativeCounter
 	}
+	return nil
 }
 
 func (s *Shim) run() error {
 	init := make(chan error)
-
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	defer wg.Wait()
 	go func() {
+		defer wg.Done()
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 

@@ -90,22 +90,20 @@ func (s *Shim) Done() {
 	s.add(-1)
 }
 
-func (s *Shim) add(delta int) error {
+func (s *Shim) add(delta int) {
 	value := s.c.Add(int64(delta))
 	if value == 0 {
 		s.cond.Broadcast()
 	}
 	if value < 0 {
-		return ErrNegativeCounter
+		panic(ErrNegativeCounter)
 	}
-	return nil
 }
 
 func (s *Shim) run() error {
 	init := make(chan error)
 
 	s.wg.Add(1)
-	defer s.wg.Wait()
 	go func() {
 		defer s.wg.Done()
 		runtime.LockOSThread()

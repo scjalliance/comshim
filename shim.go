@@ -21,6 +21,7 @@ type Shim struct {
 	cond    sync.Cond
 	c       Counter // An atomic counter
 	running bool
+	wg      sync.WaitGroup
 }
 
 // New returns a new shim for keeping component object model resources allocated
@@ -61,7 +62,6 @@ func (s *Shim) TryAdd(delta int) error {
 	}
 
 	if err := s.run(); err != nil {
-		// FIXME: Consider passing out the error if the shim creation fails
 		return err
 	}
 
@@ -103,11 +103,11 @@ func (s *Shim) add(delta int) error {
 
 func (s *Shim) run() error {
 	init := make(chan error)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	defer wg.Wait()
+
+	s.wg.Add(1)
+	defer s.wg.Wait()
 	go func() {
-		defer wg.Done()
+		defer s.wg.Done()
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
@@ -144,4 +144,9 @@ func (s *Shim) run() error {
 	}()
 
 	return <-init
+}
+
+// Waits for all goroutines to be terminated
+func (s *Shim) WaitDone() {
+	s.wg.Wait()
 }

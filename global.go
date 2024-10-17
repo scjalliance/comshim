@@ -34,3 +34,8 @@ func TryAdd(delta int) error {
 func Done() {
 	global.Done()
 }
+
+// Waits for all goroutines to be terminated
+func WaitDone() {
+	global.WaitDone()
+}

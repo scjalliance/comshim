@@ -148,3 +148,8 @@ func (s *Shim) run() error {
 func (s *Shim) WaitDone() {
 	s.wg.Wait()
 }
+
+// Gets the counter
+func (s *Shim) Count() int64 {
+	return s.c.Value()
+}

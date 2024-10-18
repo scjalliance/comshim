@@ -39,3 +39,8 @@ func Done() {
 func WaitDone() {
 	global.WaitDone()
 }
+
+// Gets the counter
+func Count() int64 {
+	return global.Count()
+}

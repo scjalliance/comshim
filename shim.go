@@ -25,6 +25,13 @@ type Loader struct {
 	wg           sync.WaitGroup
 }
 
+// NewLoader usage:
+//
+//	comLoader := comshim.NewLoader()
+//	defer comLoader.Wait()
+//	...
+//	comLoader.Load()
+//	defer comLoader.Unload()
 func NewLoader() *Loader {
 	shim := Loader{}
 	shim.signal.L = &shim.signalAccess

@@ -1,4 +1,4 @@
-comshim [![GoDoc](https://godoc.org/github.com/scjalliance/comshim?status.svg)](https://godoc.org/github.com/scjalliance/comshim)
+comshim [![GoDoc](https://godoc.org/github.com/NozomiNetworks/go-comshim?status.svg)](https://godoc.org/github.com/NozomiNetworks/go-comshim)
 ====
 
 The comshim package provides a mechanism for maintaining an initialized
@@ -27,7 +27,7 @@ Global Example
 ```
 package main
 
-import "github.com/scjalliance/comshim"
+import "github.com/NozomiNetworks/go-comshim"
 
 func main() {
 	// This ensures that at least one thread maintains an initialized
@@ -52,7 +52,7 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
-	"github.com/scjalliance/comshim"
+	"github.com/NozomiNetworks/go-comshim"
 )
 
 // Object wraps a COM interface in a way that is safe for multi-threaded access.

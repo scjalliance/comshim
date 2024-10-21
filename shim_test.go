@@ -7,12 +7,15 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
-	"github.com/scjalliance/comshim"
+
+	"github.com/NozomiNetworks/go-comshim"
+
 	"github.com/stretchr/testify/assert"
 )
 
 func TestConcurrentShims(t *testing.T) {
-	defer comshim.Wait()
+	comLoader := comshim.NewLoader()
+	defer comLoader.Wait()
 	var maxRounds int
 	if testing.Short() {
 		maxRounds = 64
@@ -32,9 +35,9 @@ func TestConcurrentShims(t *testing.T) {
 				go func(i int) {
 					defer wg.Done()
 
-					runErr := comshim.Require()
-					assert.Nil(t, runErr)
-					defer comshim.Done()
+					loadErr := comLoader.Load()
+					assert.Nil(t, loadErr)
+					defer comLoader.Unload()
 
 					obj, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
 					if err != nil {
@@ -50,7 +53,8 @@ func TestConcurrentShims(t *testing.T) {
 }
 
 func TestConcurrentCoInitializeDoesNotPanic(t *testing.T) {
-	defer comshim.Wait()
+	comLoader := comshim.NewLoader()
+	defer comLoader.Wait()
 	var maxRounds int
 	if testing.Short() {
 		maxRounds = 64
@@ -69,8 +73,8 @@ func TestConcurrentCoInitializeDoesNotPanic(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					_ = comshim.Require()
-					defer comshim.Done()
+					_ = comLoader.Load()
+					defer comLoader.Unload()
 				}()
 
 				wg.Add(1)

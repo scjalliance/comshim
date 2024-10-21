@@ -5,25 +5,25 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
-	"github.com/scjalliance/comshim"
 )
 
 // Object wraps a COM interface in a way that is safe for multi-threaded access.
 // In this example it wraps IUnknown.
 type Object struct {
-	m     sync.Mutex
-	iface *ole.IUnknown
+	m         sync.Mutex
+	iface     *ole.IUnknown
+	comLoader *comshim.Loader
 }
 
 // NewObject creates a new object. Be sure to document the need to call Close().
-func NewObject() (*Object, error) {
-	_ = comshim.Require()
+func NewObject(comLoader *comshim.Loader) (*Object, error) {
+	_ = comLoader.Load()
 	iunknown, err := oleutil.CreateObject("Excel.Application")
 	if err != nil {
-		comshim.Done()
+		comLoader.Unload()
 		return nil, err
 	}
-	return &Object{iface: iunknown}, nil
+	return &Object{iface: iunknown, comLoader: comLoader}, nil
 }
 
 // Close releases any resources used by the object.
@@ -35,7 +35,7 @@ func (o *Object) Close() {
 	}
 	o.iface.Release()
 	o.iface = nil
-	comshim.Done()
+	o.comLoader.Unload()
 }
 
 // Foo performs some action using the object's COM interface.
@@ -47,13 +47,15 @@ func (o *Object) Foo() {
 }
 
 func Example_wrapperUsage() {
-	obj1, err := NewObject() // Create an object
+	comLoader := comshim.NewLoader()
+	defer comLoader.Wait()
+	obj1, err := NewObject(comLoader) // Create an object
 	if err != nil {
 		panic(err)
 	}
 	defer obj1.Close() // Be sure to close the object when finished
 
-	obj2, err := NewObject() // Create a second object
+	obj2, err := NewObject(comLoader) // Create a second object
 	if err != nil {
 		panic(err)
 	}

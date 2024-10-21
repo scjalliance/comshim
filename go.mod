@@ -1,4 +1,4 @@
-module github.com/scjalliance/comshim
+module github.com/NozomiNetworks/go-comshim
 
 go 1.22
 

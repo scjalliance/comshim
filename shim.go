@@ -1,134 +1,82 @@
 package comshim
 
 import (
+	"errors"
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-ole/go-ole"
 )
 
-// Shim provides control of a thread-locked goroutine that has been initialized
-// for use with a mulithreaded component object model apartment. This is used
-// to ensure that at least one thread within a process maintains an
-// initialized connection to COM, and thus prevents COM resources from being
-// unloaded from that process.
-//
-// Control is implemented through the use of a counter similar to a waitgroup.
-// As long as the counter is greater than zero then the goroutine will remain
-// in a blocked condition with its COM connection intact.
-type Shim struct {
-	m       sync.RWMutex
-	cond    sync.Cond
-	c       Counter // An atomic counter
-	running bool
-	wg      sync.WaitGroup
-	wgMutex sync.RWMutex
+var (
+	ErrNegativeCounter    = errors.New("COM already unloaded")
+	ErrAlreadyInitialized = errors.New("COM thread has already been initialized")
+)
+
+// Loader maintains CoInitializeEx as long as required
+// https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex
+type Loader struct {
+	startAccess  sync.Mutex
+	loaded       bool
+	signalAccess sync.Mutex
+	signal       sync.Cond
+	workTotal    atomic.Int64 // https://pkg.go.dev/sync/atomic#pkg-note-BUG
+	wg           sync.WaitGroup
 }
 
-// New returns a new shim for keeping component object model resources allocated
-// within a process.
-func New() *Shim {
-	shim := new(Shim)
-	shim.cond.L = &shim.m
-	shim.wg = sync.WaitGroup{}
-	return shim
+func NewLoader() *Loader {
+	shim := Loader{}
+	shim.signal.L = &shim.signalAccess
+	return &shim
 }
 
-// TryAdd adds delta, which may be negative, to the counter for the shim. As long
-// as the counter is greater than zero, at least one thread is guaranteed to be
-// initialized for mutli-threaded COM access.
-//
-// If the counter becomes zero, the shim is released and COM resources may be
-// released if there are no other threads that are still initialized.
-//
-// If the counter goes negative, TryAdd panics.
-//
-// If the shim cannot be created for some reason, TryAdd returns an error.
-func (s *Shim) TryAdd(delta int) error {
-	// Check whether the shim is already running within a read lock
-	s.m.RLock()
-	if s.running {
-		s.add(delta)
-		s.m.RUnlock()
-		return nil
-	}
-	s.m.RUnlock()
-
-	// The shim wasn't running; only change the running state within a write lock
-	s.m.Lock()
-	defer s.m.Unlock()
-	s.add(delta)
-	if s.running {
-		// The shim was started between the read lock and the write lock
-		return nil
+// Load loads COM, call Unload when COM is no longer required.
+// If Load returns ErrAlreadyInitialized subsequent COM calls might still succeed,
+// as long as the other location where COM was loaded maintains it.
+func (s *Loader) Load() error {
+	s.startAccess.Lock()
+	defer s.startAccess.Unlock()
+	s.requiredBy(1)
+	if s.loaded {
+		return nil // already loaded
 	}
 
-	if err := s.run(); err != nil {
+	err := s.start()
+	if err != nil {
 		return err
 	}
 
-	s.running = true
+	s.loaded = true
 	return nil
 }
 
-// Add adds delta, which may be negative, to the counter for the shim. As long
-// as the counter is greater than zero, at least one thread is guaranteed to be
-// initialized for mutli-threaded COM access.
-//
-// If the counter becomes zero, the shim is released and COM resources may be
-// released if there are no other threads that are still initialized.
-//
-// If the counter goes negative, Add panics.
-//
-// If the shim cannot be created for some reason, Add panics.
-func (s *Shim) Add(delta int) {
-	if err := s.TryAdd(delta); err != nil {
-		panic(err)
-	}
+func (s *Loader) Unload() {
+	s.requiredBy(-1)
 }
 
-// Done decrements the counter for the shim.
-func (s *Shim) Done() {
-	s.add(-1)
-}
-
-func (s *Shim) add(delta int) {
-	value := s.c.Add(int64(delta))
-	if value == 0 {
-		s.cond.Broadcast()
-	}
-	if value < 0 {
+func (s *Loader) requiredBy(delta int64) {
+	s.signalAccess.Lock()
+	defer s.signalAccess.Unlock()
+	value := s.workTotal.Add(delta)
+	s.signal.Signal()
+	if value < 0 { // invalid usage
 		panic(ErrNegativeCounter)
 	}
 }
 
-func (s *Shim) addRoutine() {
-	s.wgMutex.Lock()
-	defer s.wgMutex.Unlock()
-	s.wg.Add(1)
-}
-
-func (s *Shim) run() error {
+func (s *Loader) start() error {
 	init := make(chan error)
-	s.addRoutine()
+	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-
-		if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
+		err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
+		if err != nil {
 			switch err.(*ole.OleError).Code() {
-			case 0x00000001: // S_FALSE
-				// Some other goroutine called CoInitialize on this thread
-				// before we ended up with it. This probably means the other
-				// caller failed to lock the OS thread or failed to call
-				// CoUninitialize.
-
-				// We still decrement this thread's initialization counter by
-				// calling CoUninitialize here, as recommended by the docs.
+			case 0x00000001: // windows.S_FALSE
 				ole.CoUninitialize()
-
-				// Send an error so that shim.Add panics
 				init <- ErrAlreadyInitialized
 			default:
 				init <- err
@@ -139,20 +87,22 @@ func (s *Shim) run() error {
 
 		close(init)
 
-		s.m.Lock()
-		for s.c.Value() > 0 {
-			s.cond.Wait()
+		{ // work until no longer required
+			s.signalAccess.Lock()
+			for s.workTotal.Load() > 0 {
+				s.signal.Wait()
+			}
+			s.loaded = false
+			ole.CoUninitialize()
+			s.signalAccess.Unlock()
 		}
-		s.running = false
-		ole.CoUninitialize()
-		s.m.Unlock()
 	}()
 
 	return <-init
 }
 
-func (s *Shim) WaitDone() {
-	s.wgMutex.Lock()
-	defer s.wgMutex.Unlock()
+func (s *Loader) Wait() {
+	s.startAccess.Lock()
+	defer s.startAccess.Unlock()
 	s.wg.Wait()
 }

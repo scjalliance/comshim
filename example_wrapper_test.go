@@ -17,7 +17,7 @@ type Object struct {
 
 // NewObject creates a new object. Be sure to document the need to call Close().
 func NewObject() (*Object, error) {
-	comshim.Add(1)
+	_ = comshim.Require()
 	iunknown, err := oleutil.CreateObject("Excel.Application")
 	if err != nil {
 		comshim.Done()

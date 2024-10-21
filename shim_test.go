@@ -8,10 +8,11 @@ import (
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 	"github.com/scjalliance/comshim"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConcurrentShims(t *testing.T) {
-	defer comshim.WaitDone()
+	defer comshim.Wait()
 	var maxRounds int
 	if testing.Short() {
 		maxRounds = 64
@@ -31,7 +32,8 @@ func TestConcurrentShims(t *testing.T) {
 				go func(i int) {
 					defer wg.Done()
 
-					comshim.Add(1)
+					runErr := comshim.Require()
+					assert.Nil(t, runErr)
 					defer comshim.Done()
 
 					obj, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
@@ -48,7 +50,7 @@ func TestConcurrentShims(t *testing.T) {
 }
 
 func TestConcurrentCoInitializeDoesNotPanic(t *testing.T) {
-	defer comshim.WaitDone()
+	defer comshim.Wait()
 	var maxRounds int
 	if testing.Short() {
 		maxRounds = 64
@@ -64,13 +66,14 @@ func TestConcurrentCoInitializeDoesNotPanic(t *testing.T) {
 		for rounds := 1; rounds <= maxRounds; rounds *= 2 {
 			wg := sync.WaitGroup{}
 			for i := 0; i < rounds; i++ {
-				wg.Add(2)
+				wg.Add(1)
 				go func() {
 					defer wg.Done()
-
-					_ = comshim.TryAdd(1)
+					_ = comshim.Require()
 					defer comshim.Done()
 				}()
+
+				wg.Add(1)
 				go func() {
 					defer wg.Done()
 					_ = ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)

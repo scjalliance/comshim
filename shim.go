@@ -21,6 +21,8 @@ type Shim struct {
 	cond    sync.Cond
 	c       Counter // An atomic counter
 	running bool
+	wg      sync.WaitGroup
+	wgMutex sync.RWMutex
 }
 
 // New returns a new shim for keeping component object model resources allocated
@@ -28,6 +30,7 @@ type Shim struct {
 func New() *Shim {
 	shim := new(Shim)
 	shim.cond.L = &shim.m
+	shim.wg = sync.WaitGroup{}
 	return shim
 }
 
@@ -99,10 +102,17 @@ func (s *Shim) add(delta int) {
 	}
 }
 
+func (s *Shim) addRoutine() {
+	s.wgMutex.Lock()
+	defer s.wgMutex.Unlock()
+	s.wg.Add(1)
+}
+
 func (s *Shim) run() error {
 	init := make(chan error)
-
+	s.addRoutine()
 	go func() {
+		defer s.wg.Done()
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
@@ -139,4 +149,10 @@ func (s *Shim) run() error {
 	}()
 
 	return <-init
+}
+
+func (s *Shim) WaitDone() {
+	s.wgMutex.Lock()
+	defer s.wgMutex.Unlock()
+	s.wg.Wait()
 }

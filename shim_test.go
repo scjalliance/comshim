@@ -11,6 +11,7 @@ import (
 )
 
 func TestConcurrentShims(t *testing.T) {
+	defer comshim.WaitDone()
 	var maxRounds int
 	if testing.Short() {
 		maxRounds = 64
@@ -47,6 +48,7 @@ func TestConcurrentShims(t *testing.T) {
 }
 
 func TestConcurrentCoInitializeDoesNotPanic(t *testing.T) {
+	defer comshim.WaitDone()
 	var maxRounds int
 	if testing.Short() {
 		maxRounds = 64

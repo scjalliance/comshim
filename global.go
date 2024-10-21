@@ -34,3 +34,8 @@ func TryAdd(delta int) error {
 func Done() {
 	global.Done()
 }
+
+// Waits all go routines to be terminated
+func WaitDone() {
+	global.WaitDone()
+}

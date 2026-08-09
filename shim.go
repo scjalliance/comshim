@@ -31,6 +31,43 @@ func New() *Shim {
 	return shim
 }
 
+// TryAdd adds delta, which may be negative, to the counter for the shim. As long
+// as the counter is greater than zero, at least one thread is guaranteed to be
+// initialized for mutli-threaded COM access.
+//
+// If the counter becomes zero, the shim is released and COM resources may be
+// released if there are no other threads that are still initialized.
+//
+// If the counter goes negative, TryAdd panics.
+//
+// If the shim cannot be created for some reason, TryAdd returns an error.
+func (s *Shim) TryAdd(delta int) error {
+	// Check whether the shim is already running within a read lock
+	s.m.RLock()
+	if s.running {
+		s.add(delta)
+		s.m.RUnlock()
+		return nil
+	}
+	s.m.RUnlock()
+
+	// The shim wasn't running; only change the running state within a write lock
+	s.m.Lock()
+	defer s.m.Unlock()
+	s.add(delta)
+	if s.running {
+		// The shim was started between the read lock and the write lock
+		return nil
+	}
+
+	if err := s.run(); err != nil {
+		return err
+	}
+
+	s.running = true
+	return nil
+}
+
 // Add adds delta, which may be negative, to the counter for the shim. As long
 // as the counter is greater than zero, at least one thread is guaranteed to be
 // initialized for mutli-threaded COM access.
@@ -42,30 +79,9 @@ func New() *Shim {
 //
 // If the shim cannot be created for some reason, Add panics.
 func (s *Shim) Add(delta int) {
-	// Check whether the shim is already running within a read lock
-	s.m.RLock()
-	if s.running {
-		s.add(delta)
-		s.m.RUnlock()
-		return
-	}
-	s.m.RUnlock()
-
-	// The shim wasn't running; only change the running state within a write lock
-	s.m.Lock()
-	defer s.m.Unlock()
-	s.add(delta)
-	if s.running {
-		// The shim was started between the read lock and the write lock
-		return
-	}
-
-	if err := s.run(); err != nil {
-		// FIXME: Consider passing out the error if the shim creation fails
+	if err := s.TryAdd(delta); err != nil {
 		panic(err)
 	}
-
-	s.running = true
 }
 
 // Done decrements the counter for the shim.
